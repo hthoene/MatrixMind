@@ -2,8 +2,6 @@ services:
   bot:
     build: .
     restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     volumes:
       - ./workspaces:/app/workspaces
       - ./config:/app/config:ro
