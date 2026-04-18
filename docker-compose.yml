@@ -2,6 +2,7 @@ services:
   bot:
     build: .
     restart: unless-stopped
+    network_mode: host
     volumes:
       - ./workspaces:/app/workspaces
       - ./config:/app/config:ro
@@ -9,8 +10,6 @@ services:
     depends_on:
       chromadb:
         condition: service_healthy
-    ports:
-      - "3000:3000"
     logging:
       driver: json-file
       options:
