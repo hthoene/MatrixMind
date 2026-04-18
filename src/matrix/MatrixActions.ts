@@ -1,7 +1,10 @@
 import fs from "fs";
+import path from "node:path";
+import { marked } from "marked";
 import { EventType, MsgType, RelationType } from "matrix-js-sdk";
 import { MatrixClient } from "./MatrixClient.js";
 import { getLogger } from "../logger.js";
+import { guessMimeType } from "../utils/media.js";
 
 const log = getLogger("MatrixActions");
 
@@ -21,11 +24,12 @@ export class MatrixActions {
 
   async sendMarkdown(roomId: string, markdown: string): Promise<void> {
     try {
+      const html = await Promise.resolve(marked.parse(markdown));
       await this.matrix.getSDKClient().sendMessage(roomId, {
         msgtype: MsgType.Text,
         body: markdown,
         format: "org.matrix.custom.html",
-        formatted_body: markdownToHtml(markdown),
+        formatted_body: html,
       });
     } catch (err) {
       log.error({ err, roomId }, "sendMarkdown failed");
@@ -35,19 +39,20 @@ export class MatrixActions {
   async sendFile(
     roomId: string,
     filePath: string,
-    mimeType: string
+    mimeType?: string
   ): Promise<void> {
     try {
       const content = fs.readFileSync(filePath);
-      const filename = filePath.split("/").pop() ?? "file";
+      const filename = path.basename(filePath) || "file";
+      const resolvedMimeType = mimeType ?? guessMimeType(filePath);
       const response = await this.matrix
         .getSDKClient()
-        .uploadContent(content, { type: mimeType, name: filename });
+        .uploadContent(content, { type: resolvedMimeType, name: filename });
       await this.matrix.getSDKClient().sendMessage(roomId, {
         msgtype: MsgType.File,
         body: filename,
         url: response.content_uri,
-        info: { mimetype: mimeType, size: content.length },
+        info: { mimetype: resolvedMimeType, size: content.length },
       });
     } catch (err) {
       log.error({ err, roomId, filePath }, "sendFile failed");
@@ -57,7 +62,7 @@ export class MatrixActions {
   async sendImage(roomId: string, imagePath: string): Promise<void> {
     try {
       const content = fs.readFileSync(imagePath);
-      const filename = imagePath.split("/").pop() ?? "image";
+      const filename = path.basename(imagePath) || "image";
       const mimeType = guessMimeType(filename);
       const response = await this.matrix
         .getSDKClient()
@@ -70,6 +75,25 @@ export class MatrixActions {
       });
     } catch (err) {
       log.error({ err, roomId, imagePath }, "sendImage failed");
+    }
+  }
+
+  async sendVideo(roomId: string, videoPath: string): Promise<void> {
+    try {
+      const content = fs.readFileSync(videoPath);
+      const filename = path.basename(videoPath) || "video";
+      const mimeType = guessMimeType(filename);
+      const response = await this.matrix
+        .getSDKClient()
+        .uploadContent(content, { type: mimeType, name: filename });
+      await this.matrix.getSDKClient().sendMessage(roomId, {
+        msgtype: MsgType.Video,
+        body: filename,
+        url: response.content_uri,
+        info: { mimetype: mimeType, size: content.length },
+      });
+    } catch (err) {
+      log.error({ err, roomId, videoPath }, "sendVideo failed");
     }
   }
 
@@ -124,38 +148,43 @@ export class MatrixActions {
     }
   }
 
+  async fetchRecentMessages(
+    roomId: string,
+    limit: number
+  ): Promise<Array<{ eventId: string; sender: string; body: string; timestamp: number }>> {
+    const sdkClient = this.matrix.getSDKClient();
+    const room = sdkClient.getRoom(roomId);
+    if (!room) return [];
+
+    try {
+      await sdkClient.scrollback(room, limit);
+    } catch (err) {
+      log.warn({ err, roomId }, "scrollback failed, using cached timeline");
+    }
+
+    const events = room.getLiveTimeline().getEvents();
+    const results: Array<{ eventId: string; sender: string; body: string; timestamp: number }> = [];
+
+    for (const event of events.slice(-limit)) {
+      if (event.getType() !== "m.room.message") continue;
+      const content = event.getContent();
+      if (content["msgtype"] !== "m.text") continue;
+      const body = content["body"] as string | undefined;
+      const sender = event.getSender();
+      const eventId = event.getId();
+      if (!body || !sender || !eventId) continue;
+      results.push({ eventId, sender, body, timestamp: event.getTs() });
+    }
+
+    return results;
+  }
+
   async markRead(roomId: string, eventId: string): Promise<void> {
     try {
-      await this.matrix.getSDKClient().sendReadReceipt(
-        // matrix-js-sdk expects a MatrixEvent; using low-level API
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        { getId: () => eventId, getRoomId: () => roomId } as any
-      );
+      await this.matrix.getSDKClient().setRoomReadMarkers(roomId, eventId);
     } catch (err) {
       log.warn({ err, roomId, eventId }, "markRead failed");
     }
   }
 }
 
-function markdownToHtml(md: string): string {
-  // Minimal conversion – bold, italic, code blocks, newlines.
-  return md
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/```[\w]*\n([\s\S]*?)```/g, "<pre><code>$1</code></pre>")
-    .replace(/\n/g, "<br/>");
-}
-
-function guessMimeType(filename: string): string {
-  const ext = filename.split(".").pop()?.toLowerCase();
-  const map: Record<string, string> = {
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    gif: "image/gif",
-    webp: "image/webp",
-    svg: "image/svg+xml",
-  };
-  return map[ext ?? ""] ?? "application/octet-stream";
-}

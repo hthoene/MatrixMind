@@ -5,7 +5,26 @@ const envSchema = z.object({
   MATRIX_ACCESS_TOKEN: z.string().min(1),
   MATRIX_USER_ID: z.string().regex(/^@[^:]+:.+$/),
   MATRIX_PASSWORD: z.string().optional(),
+  MATRIX_RECOVERY_KEY: z.string().optional(),
+  MATRIX_AUTO_VERIFY: z
+    .string()
+    .transform((v) => v === "true")
+    .default("true"),
+  MATRIX_AUTO_VERIFY_RESPONSE_FILE: z.string().optional(),
+  MATRIX_AUTO_VERIFY_STATUS_FILE: z.string().optional(),
+  MATRIX_AUTO_VERIFY_TARGET_DEVICE_ID: z.string().optional(),
+  MATRIX_ALLOW_CROSS_SIGNING_RESET: z
+    .string()
+    .transform((v) => v === "true")
+    .default("false"),
   ANTHROPIC_API_KEY: z.string().min(1),
+  KIE_AI_API_KEY: z.string().optional(),
+  ALLOWED_HOMESERVERS: z
+    .string()
+    .optional()
+    .transform((v) =>
+      v ? v.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean) : []
+    ),
   CLAUDE_CODE_AVAILABLE: z
     .string()
     .transform((v) => v === "true")

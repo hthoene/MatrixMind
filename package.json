@@ -22,6 +22,7 @@
     "@matrix-org/matrix-sdk-crypto-wasm": "^18.1.0",
     "better-sqlite3": "^12.0.0",
     "chromadb": "^3.0.0",
+    "marked": "^18.0.2",
     "matrix-js-sdk": "^34.6.0",
     "node-cron": "^3.0.3",
     "node-indexeddb": "^6.0.3",
@@ -32,6 +33,7 @@
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.11",
+    "@types/marked": "^5.0.2",
     "@types/node": "^20.14.0",
     "@types/node-cron": "^3.0.11",
     "@types/uuid": "^10.0.0",

@@ -21,6 +21,10 @@ export class ClaudeCodeProvider implements LLMProvider {
         prompt: params.prompt,
         options: {
           cwd: params.workspacePath,
+          env: {
+            ...process.env,
+            SHELL: process.env.SHELL || "/bin/bash",
+          },
           allowedTools: params.allowedTools ?? [
             "Read",
             "Write",

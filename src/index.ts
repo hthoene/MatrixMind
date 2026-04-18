@@ -3,6 +3,10 @@ import { getConfig } from "./config.js";
 import { getLogger } from "./logger.js";
 import { MatrixClient } from "./matrix/MatrixClient.js";
 import { MatrixActions } from "./matrix/MatrixActions.js";
+import {
+  confirmPendingAutoVerification,
+  getAutoVerificationSnapshot,
+} from "./matrix/AutoSessionVerifier.js";
 import { EventRouter } from "./matrix/EventRouter.js";
 import { WorkspaceManager } from "./room/WorkspaceManager.js";
 import { RoomManager } from "./room/RoomManager.js";
@@ -13,6 +17,7 @@ import { LLMProvider } from "./llm/LLMProvider.js";
 import { ShouldReplyFilter } from "./filter/ShouldReplyFilter.js";
 import { CronEngine } from "./cron/CronEngine.js";
 import { RateLimiter } from "./utils/RateLimiter.js";
+import { KieAIClient } from "./media/KieAIClient.js";
 
 const log = getLogger("main");
 
@@ -46,10 +51,29 @@ async function main(): Promise<void> {
 
   const workspace = new WorkspaceManager();
   const cronEngine = new CronEngine();
-  const roomManager = new RoomManager(workspace, llm, vectorStore, cronEngine);
   const matrixClient = new MatrixClient();
   const actions = new MatrixActions(matrixClient);
-  const filter = new ShouldReplyFilter(config.MATRIX_USER_ID);
+  const kie = new KieAIClient();
+  const roomManager = new RoomManager(
+    workspace,
+    llm,
+    vectorStore,
+    cronEngine,
+    actions,
+    kie
+  );
+  const filter = new ShouldReplyFilter(
+    config.MATRIX_USER_ID,
+    (roomId) => {
+      const room = matrixClient.getSDKClient().getRoom(roomId);
+      return room?.getMembers().map((m) => m.userId) ?? [];
+    },
+    (roomId, eventId) => {
+      const room = matrixClient.getSDKClient().getRoom(roomId);
+      const event = room?.findEventById(eventId);
+      return event?.getSender() ?? null;
+    }
+  );
   const rateLimiter = new RateLimiter(
     config.MAX_REQUESTS_PER_ROOM_PER_MINUTE,
     60_000
@@ -101,7 +125,7 @@ async function main(): Promise<void> {
   });
 
   // --- Health check HTTP endpoint ---
-  const healthServer = http.createServer((req, res) => {
+  const healthServer = http.createServer(async (req, res) => {
     if (req.url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(
@@ -111,6 +135,27 @@ async function main(): Promise<void> {
           uptime: process.uptime(),
         })
       );
+    } else if (req.url === "/verify" && req.method === "GET") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(getAutoVerificationSnapshot()));
+    } else if (req.url === "/verify/confirm" && req.method === "POST") {
+      const body = await readRequestBody(req);
+      const confirm = parseVerificationConfirmation(body);
+      if (confirm === null) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            error:
+              "Expected either JSON {\"confirm\":true|false} or a plain body of yes/no/true/false.",
+          })
+        );
+        return;
+      }
+
+      const token = readHeader(req, "x-matrixmind-verify-token");
+      const result = confirmPendingAutoVerification(confirm, token);
+      res.writeHead(result.status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: result.ok, message: result.message }));
     } else {
       res.writeHead(404);
       res.end();
@@ -141,6 +186,42 @@ async function main(): Promise<void> {
   process.on("unhandledRejection", (reason) => {
     log.error({ reason }, "Unhandled rejection");
   });
+}
+
+function readRequestBody(req: http.IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    req.on("end", () => {
+      resolve(Buffer.concat(chunks).toString("utf8"));
+    });
+    req.on("error", reject);
+  });
+}
+
+function parseVerificationConfirmation(body: string): boolean | null {
+  const trimmed = body.trim();
+  if (!trimmed) return null;
+
+  if (/^(yes|y|true|1)$/i.test(trimmed)) return true;
+  if (/^(no|n|false|0)$/i.test(trimmed)) return false;
+
+  try {
+    const parsed = JSON.parse(trimmed) as { confirm?: unknown };
+    if (typeof parsed.confirm === "boolean") return parsed.confirm;
+  } catch {
+    // fall through
+  }
+
+  return null;
+}
+
+function readHeader(req: http.IncomingMessage, name: string): string | undefined {
+  const value = req.headers[name];
+  if (Array.isArray(value)) return value[0];
+  return value;
 }
 
 main().catch((err) => {

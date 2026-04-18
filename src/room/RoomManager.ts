@@ -7,6 +7,8 @@ import { VectorStore } from "../memory/VectorStore.js";
 import { CronEngine } from "../cron/CronEngine.js";
 import { getConfig } from "../config.js";
 import { roomIdToHash } from "../utils/hash.js";
+import { MatrixActions } from "../matrix/MatrixActions.js";
+import { KieAIClient } from "../media/KieAIClient.js";
 
 const log = getLogger("RoomManager");
 
@@ -17,7 +19,9 @@ export class RoomManager {
     private readonly workspace: WorkspaceManager,
     private readonly llm: LLMProvider,
     private readonly vectorStore: VectorStore,
-    private readonly cronEngine: CronEngine
+    private readonly cronEngine: CronEngine,
+    private readonly actions: MatrixActions,
+    private readonly kie: KieAIClient
   ) {}
 
   getOrCreate(roomId: string): RoomContext {
@@ -34,7 +38,9 @@ export class RoomManager {
       this.workspace,
       this.llm,
       memory,
-      this.cronEngine
+      this.cronEngine,
+      this.actions,
+      this.kie
     );
 
     this.rooms.set(roomId, context);

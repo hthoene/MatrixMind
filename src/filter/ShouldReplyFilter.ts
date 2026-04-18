@@ -16,26 +16,77 @@ export class ShouldReplyFilter {
   private readonly botUserId: string;
   private readonly commandPrefix: string;
   private anthropic: Anthropic | null = null;
+  private readonly getMemberIds: (roomId: string) => string[];
+  private readonly getEventSender: (roomId: string, eventId: string) => string | null;
 
-  constructor(botUserId: string) {
+  constructor(
+    botUserId: string,
+    getMemberIds: (roomId: string) => string[],
+    getEventSender: (roomId: string, eventId: string) => string | null
+  ) {
     const config = getConfig();
     this.botUserId = botUserId;
     this.commandPrefix = config.BOT_COMMAND_PREFIX;
+    this.getMemberIds = getMemberIds;
+    this.getEventSender = getEventSender;
   }
 
   async shouldReply(msg: ParsedMessage): Promise<boolean> {
-    // Stage 1: rule-based
+    if (!this.isRoomAllowed(msg.roomId)) {
+      log.debug({ roomId: msg.roomId }, "Room blocked – no member from allowed homeservers");
+      return false;
+    }
+
+    // In group rooms only reply when explicitly addressed
+    if (!msg.isDM) {
+      return this.isExplicitlyAddressed(msg);
+    }
+
+    // DM: full 3-stage logic
     const stage1 = this.stage1(msg);
     if (stage1 === "YES") return true;
     if (stage1 === "NO") return false;
 
-    // Stage 2: heuristic
     const stage2 = this.stage2(msg);
     if (stage2 === "YES") return true;
     if (stage2 === "NO") return false;
 
-    // Stage 3: Haiku classifier
     return this.stage3(msg);
+  }
+
+  private isExplicitlyAddressed(msg: ParsedMessage): boolean {
+    if (msg.sender === this.botUserId) return false;
+    if (KNOWN_BOT_PATTERNS.some((p) => p.test(msg.sender))) return false;
+
+    const body = msg.body.trim();
+    const localPart = this.botUserId.split(":")[0]?.replace("@", "") ?? "";
+
+    // Explicit @mention
+    if (msg.body.includes(`@${this.botUserId}`) || msg.body.toLowerCase().includes(localPart.toLowerCase())) {
+      return true;
+    }
+
+    // Command prefix
+    if (body.startsWith(this.commandPrefix) || body.startsWith("/")) return true;
+
+    // Reply to a bot message
+    if (msg.isReply && msg.replyToEventId) {
+      const repliedSender = this.getEventSender(msg.roomId, msg.replyToEventId);
+      if (repliedSender === this.botUserId) return true;
+    }
+
+    return false;
+  }
+
+  private isRoomAllowed(roomId: string): boolean {
+    const { ALLOWED_HOMESERVERS } = getConfig();
+    if (ALLOWED_HOMESERVERS.length === 0) return true;
+
+    const members = this.getMemberIds(roomId);
+    return members.some((userId) => {
+      const server = userId.split(":")[1]?.toLowerCase() ?? "";
+      return ALLOWED_HOMESERVERS.includes(server);
+    });
   }
 
   private stage1(msg: ParsedMessage): ReplyDecision {

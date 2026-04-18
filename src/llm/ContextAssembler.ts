@@ -30,8 +30,14 @@ export class ContextAssembler {
     const vectorRecall = await this.fetchVectorRecall(current.body);
     const history = this.buildHistorySection(recentHistory, current);
 
+    const now = new Date().toLocaleString("de-DE", {
+      timeZone: "Europe/Berlin",
+      dateStyle: "full",
+      timeStyle: "medium",
+    });
+
     return [
-      "## System\n" + soul,
+      "## System\n" + soul + `\n\nAktuelle Uhrzeit: ${now}`,
       "## Long-Term Memory\n" + memoryMd,
       vectorRecall ? "## Related Context (from memory)\n" + vectorRecall : "",
       "## Recent Conversation\n" + history,
