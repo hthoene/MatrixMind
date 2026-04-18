@@ -167,19 +167,21 @@ export class MatrixClient {
       log.warn({ err }, "downloadKeys before cross-signing bootstrap failed");
     }
 
-    if (await crypto.isCrossSigningReady()) {
-      log.info("Cross-signing already set up");
-      return;
-    }
-
     const config = getConfig();
     const hasRecoveryKey = Boolean(config.MATRIX_RECOVERY_KEY?.trim());
     const hasPassword = Boolean(config.MATRIX_PASSWORD);
+    const crossSigningReady = await crypto.isCrossSigningReady();
 
     if (hasRecoveryKey) {
-      log.info(
-        "Cross-signing is not ready yet - trying to unlock existing cross-signing keys from secret storage"
-      );
+      // Always bootstrap when recovery key is available — even if cross-signing
+      // keys are already in the store. Bootstrap is idempotent and ensures the
+      // current device is signed with the self-signing key so other clients
+      // will encrypt to it.
+      if (crossSigningReady) {
+        log.info("Cross-signing keys available — re-running bootstrap to self-sign this device");
+      } else {
+        log.info("Cross-signing is not ready yet - trying to unlock existing cross-signing keys from secret storage");
+      }
 
       try {
         await crypto.bootstrapCrossSigning({
@@ -197,6 +199,11 @@ export class MatrixClient {
           "Unlocking cross-signing via MATRIX_RECOVERY_KEY failed - falling back to the remaining bootstrap options"
         );
       }
+    }
+
+    if (crossSigningReady) {
+      log.info("Cross-signing already set up (no recovery key to self-sign device)");
+      return;
     }
 
     if (!hasPassword) {
