@@ -2,7 +2,6 @@ services:
   bot:
     build: .
     restart: unless-stopped
-    user: "1001:1001"
     volumes:
       - ./workspaces:/app/workspaces
       - ./config:/app/config:ro
