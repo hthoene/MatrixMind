@@ -1,0 +1,41 @@
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    user: "1001:1001"
+    volumes:
+      - ./workspaces:/app/workspaces
+      - ./config:/app/config:ro
+    env_file: .env
+    depends_on:
+      chromadb:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  chromadb:
+    image: chromadb/chroma:latest
+    restart: unless-stopped
+    volumes:
+      - chroma_data:/data
+    healthcheck:
+      # chromadb/chroma images ship neither curl nor python – use bash's /dev/tcp
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/localhost/8000 && echo OK >&3'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  chroma_data:

@@ -1,0 +1,49 @@
+{
+  "name": "matrixmind",
+  "version": "1.0.0",
+  "description": "Intelligent, room-isolated Matrix bot powered by Claude Code SDK",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node --esm src/index.ts",
+    "start": "node --env-file-if-exists=.env dist/index.js",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write src",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "verify": "node --env-file-if-exists=.env dist/verify.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.114",
+    "@anthropic-ai/sdk": "^0.52.0",
+    "@chroma-core/default-embed": "^0.1.9",
+    "@matrix-org/matrix-sdk-crypto-wasm": "^18.1.0",
+    "better-sqlite3": "^12.0.0",
+    "chromadb": "^3.0.0",
+    "matrix-js-sdk": "^34.6.0",
+    "node-cron": "^3.0.3",
+    "node-indexeddb": "^6.0.3",
+    "pino": "^9.4.0",
+    "pino-pretty": "^11.2.2",
+    "uuid": "^10.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^20.14.0",
+    "@types/node-cron": "^3.0.11",
+    "@types/uuid": "^10.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.6.0",
+    "prettier": "^3.3.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.3",
+    "vitest": "^2.0.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
