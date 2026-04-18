@@ -78,7 +78,24 @@ export class MatrixClient {
       "Matrix client started (E2EE enabled)"
     );
 
+    // Wait for the first sync so the homeserver has published our device keys
+    // and we can download our own public identity before bootstrapping cross-signing.
+    await this.waitForSync();
+    await this.ensureCrossSigning();
+    await this.ensureTrustedKeyBackup();
+
     this.startAutoVerification();
+  }
+
+  private waitForSync(): Promise<void> {
+    return new Promise((resolve) => {
+      const state = this.client.getSyncState();
+      if (state === "PREPARED" || state === "SYNCING") {
+        resolve();
+        return;
+      }
+      this.client.once(sdk.ClientEvent.Sync, () => resolve());
+    });
   }
 
   private dispatchEvent(event: MatrixEvent, room: Room | undefined): void {
@@ -136,14 +153,19 @@ export class MatrixClient {
     await this.client.initRustCrypto({ useIndexedDB: true });
     this.client.getCrypto()?.setTrustCrossSignedDevices(true);
     log.info({ deviceId }, "Rust crypto initialized (persistent store)");
-
-    await this.ensureCrossSigning();
-    await this.ensureTrustedKeyBackup();
   }
 
   private async ensureCrossSigning(): Promise<void> {
     const crypto = this.client.getCrypto();
     if (!crypto) return;
+
+    // Download our own public identity so the Rust crypto layer can verify
+    // cross-signing signatures before bootstrapping.
+    try {
+      await this.client.downloadKeys([getConfig().MATRIX_USER_ID]);
+    } catch (err) {
+      log.warn({ err }, "downloadKeys before cross-signing bootstrap failed");
+    }
 
     if (await crypto.isCrossSigningReady()) {
       log.info("Cross-signing already set up");
